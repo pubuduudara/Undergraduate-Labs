@@ -1,0 +1,257 @@
+1. 
+SET profiling = 1;
+
+SELECT (first_name) 
+FROM employees 
+ORDER BY first_name ASC;
+
+SHOW PROFILES;
+
++----------+------------+--------------------------------------------------------------+
+| Query_ID | Duration   | Query                                                        |
++----------+------------+--------------------------------------------------------------+
+|        1 | 3.00618250 | SELECT (first_name)
+FROM employees
+ORDER BY first_name ASC |
++----------+------------+--------------------------------------------------------------+
+
+Execution time is 3.00618250 seconds
+
+2. 
+
+CREATE INDEX `​fname_index` ON employees (first_name);
+
+SET profiling = 1;
+
+SELECT (first_name) 
+FROM employees 
+ORDER BY first_name ASC;
+
+SHOW PROFILES;
+
++----------+------------+--------------------------------------------------------------+
+| Query_ID | Duration   | Query                                                        |
++----------+------------+--------------------------------------------------------------+
+|       23 | 0.00014375 | SET profiling = 1                                            |
+|       24 | 0.00031575 | SET profiling = 1                                            |
+|       25 | 0.20991025 | SELECT (first_name)
+FROM employees
+ORDER BY first_name ASC |
++----------+------------+--------------------------------------------------------------+
+
+Execution time is 0.20991025 seconds
+
+Therefore, performance improvement = (3.00618250-0.20991025) = 2.79627225 seconds
+
+3.
+
+​SHOW INDEX FROM employees;
+
++-----------+------------+--------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+---------+------------+
+| Table     | Non_unique | Key_name     | Seq_in_index | Column_name | Collation | Cardinality | Sub_part | Packed | Null | Index_type | Comment | Index_comment | Visible | Expression |
++-----------+------------+--------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+---------+------------+
+| employees |          0 | PRIMARY      |            1 | emp_no      | A         |      300024 |     NULL |   NULL |      | BTREE      |         |               | YES     | NULL       |
+| employees |          1 | ?fname_index |            1 | first_name  | A         |        1276 |     NULL |   NULL | YES  | BTREE      |         |               | YES     | NULL       |
++-----------+------------+--------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+---------+------------+
+
+
+Both fname_index and primary key used BTREE method for indexing
+
+4.
+
+# drop previous added index fname_index
+DROP INDEX `?fname_index` ON employees;
+
+#add new indexes
+CREATE UNIQUE INDEX `​new_index` ON employees (emp_no,first_name,last_name);
+
+#execute query
+
+SET profiling = 1;
+
+SELECT (first_name) 
+FROM employees 
+ORDER BY first_name ASC;
+
+SHOW PROFILES;
+
++----------+------------+--------------------------------------------------------------+
+| Query_ID | Duration   | Query                                                        |
++----------+------------+--------------------------------------------------------------+
+|        1 | 0.68930300 | SELECT (first_name)
+FROM employees
+ORDER BY first_name ASC |
++----------+------------+--------------------------------------------------------------+
+
+Execution time is 0.68930300 seconds
+
+The perfromance has decreased.
+
+In this case multi-column index is used. The query has a single attribute. When mult-column index is created using emp_no,first_name,last_name the higher priority goes to the left most emp_no during the execution. Therefore, the system will not perform as expected since the query do not have an impact on emp_no. In above case it is used only first_name as the index and it is what query executes with. Therefore, query execution time increased in this than the previous case
+
+
+5
+
+i).
+
+Answer is 'from_date', due to following reasons
+
+1). It is included in the 'WHERE' clause
+2). Number of unique 'dept_no' are 9
+	Numbbr of unique 'from_date' are 16
+
+	Therefore, though both 'dept_no' and 'from_date' are included in the 'WHERE' clause, since 'from_date' has a higher degree of uniqueness it performs well a the index
+
+
+ii)
+CREATE INDEX `​IND1` ON dept_manager(from_date);
+
+
+
+EXPLAIN select distinct emp_no from dept_manager where from_date>=1985-01-01 and dept_no>= 'd005';
+
++----+-------------+--------------+------------+-------+---------------------+--------+---------+------+------+----------+-------------+
+| id | select_type | table        | partitions | type  | possible_keys       | key    | key_len | ref  | rows | filtered | Extra       |
++----+-------------+--------------+------------+-------+---------------------+--------+---------+------+------+----------+-------------+
+|  1 | SIMPLE      | dept_manager | NULL       | index | PRIMARY,emp_no,IND1 | emp_no | 4       | NULL |   24 |    19.44 | Using where |
++----+-------------+--------------+------------+-------+---------------------+--------+---------+------+------+----------+-------------+
+
+
+EXPLAIN select distinct emp_no from dept_manager where from_date>=1996-01-03 and dept_no>= 'd005';
+
++----+-------------+--------------+------------+-------+---------------------+--------+---------+------+------+----------+-------------+
+| id | select_type | table        | partitions | type  | possible_keys       | key    | key_len | ref  | rows | filtered | Extra       |
++----+-------------+--------------+------------+-------+---------------------+--------+---------+------+------+----------+-------------+
+|  1 | SIMPLE      | dept_manager | NULL       | index | PRIMARY,emp_no,IND1 | emp_no | 4       | NULL |   24 |    19.44 | Using where |
++----+-------------+--------------+------------+-------+---------------------+--------+---------+------+------+----------+-------------+
+
+EXPLAIN select distinct emp_no from dept_manager where from_date>=1985-01-01 and dept_no<= 'd009';
+
++----+-------------+--------------+------------+-------+---------------------+--------+---------+------+------+----------+-------------+
+| id | select_type | table        | partitions | type  | possible_keys       | key    | key_len | ref  | rows | filtered | Extra       |
++----+-------------+--------------+------------+-------+---------------------+--------+---------+------+------+----------+-------------+
+|  1 | SIMPLE      | dept_manager | NULL       | index | PRIMARY,emp_no,IND1 | emp_no | 4       | NULL |   24 |    33.33 | Using where |
++----+-------------+--------------+------------+-------+---------------------+--------+---------+------+------+----------+-------------+
+
+For each 3 queries MYSQL storage engine has used the primary key (emp_no) as the index.
+
+Since this dept_manager table does not have many rows it doesn't need to create a seperate index. The primary key has a higher degree of uniquness. Therefore, it can be used to identify each row uniquely. 'WHERE' statement doesn't have a higher impact on the execution time because the number of rows are small in the table
+
+6.
+
+2)  Query:	
+	SELECT DISTINCT last_name FROM employees LIMIT 10;
+
+	'last_name'. Because it is the only attribute selected in the particular query. 
+	Since it is not the primary key, inorder to reduce query execution time it is better to use 'last_name' as the index
+
+3)  Query:	
+	SELECT COUNT(*)
+	FROM dept_emp,titles
+	WHERE dept_emp.emp_no=titles.emp_no AND titles.title='Engineer' AND dept_emp.dept_no='d001'; 
+
+
+ 	In addition to primary keys on title(emp_no) and dept_emp(emp_no), 'title' in the title table and 'dept_no' in the dept_emp table. 
+	Since there is a conitonal check inside the 'WHERE' to find whether the given title is belong to particular department. And also these attributes are used to build the connection between tables.
+
+4)  Query:
+	
+	SELECT employees.first_name
+	FROM employees
+	JOIN dept_manager ON (employees.emp_no = dept_manager.emp_no)
+	JOIN titles ON (employees.emp_no = titles.emp_no)
+	WHERE employees.sex='F' AND titles.title='Senior Engineer';
+	
+	 In addtion to primary keys (employees.emp_no,dept_manager.emp_no, titles.emp_no), employees.sex and titles.title 
+   	Since there are join condtions between tables, it is better to use attributes as indexes which used in the join conditions
+   	employees.sex and titles.title used inside the 'WHERE' clause.
+
+5)  Query:	
+
+	SELECT DISTINCT departments.dept_name,titles.title
+	FROM titles
+	JOIN dept_emp ON titles.emp_no=dept_emp.emp_no
+	JOIN departments ON dept_emp.dept_no=departments.dept_no
+	JOIN salaries ON dept_emp.emp_no=salaries.emp_no
+	WHERE salaries.salary>11500;
+
+ 	In addtion to primary keys (titles.emp_no,dept_emp.emp_no,departments.dept_no,salaries.emp_no), salaries.salary is better to use
+   	Since there are join condtions between tables, it is better to use attributes as indexes which used in the join conditions
+   	salaries.salary is used as a index in the salary table becase it's inside a 'WHERE' clause
+
+    Query:	
+	
+	SELECT DISTINCT departments.dept_name,COUNT(*) AS employees
+	FROM titles
+	JOIN dept_emp ON titles.emp_no=dept_emp.emp_no
+	JOIN departments ON dept_emp.dept_no=departments.dept_no
+	JOIN salaries ON dept_emp.emp_no=salaries.emp_no
+	WHERE salaries.salary>11500
+	GROUP BY departments.dept_name;
+
+   	for part ii) of the same question additionally departments.dept_name can be used. Because it used in the GROUP BY constraint
+
+6)  Query:
+	SELECT employees.first_name, (YEAR(CURRENT_TIMESTAMP) - YEAR(birth_date)) AS age, (YEAR(CURRENT_TIMESTAMP) - YEAR(hire_date)) AS worked, employees.hire_date 
+	FROM employees
+	WHERE (YEAR(CURRENT_TIMESTAMP) - YEAR(birth_date))>50
+	AND (YEAR(CURRENT_TIMESTAMP) - YEAR(hire_date))>10;
+
+	
+	employees.birth_date,employees.hire_date
+	These two attrbutes used inside the WHERE clause for conditions.
+
+7)  Query:	
+	SELECT DISTINCT CONCAT(employees.first_name ,' ', employees.last_name) AS names 
+	FROM employees 
+	JOIN dept_emp ON employees.emp_no=dept_emp.emp_no 
+	WHERE NOT dept_emp.dept_no='d003';
+
+
+	In addtion to primary keys (employees.emp_no,dept_emp.emp_no), dept_emp.dept_no 
+	dept_emp.dept_no is used inside the WHERE clause
+
+8)  Query:
+	SELECT DISTINCT employees.first_name,employees.last_name
+	FROM employees
+	JOIN salaries on employees.emp_no=salaries.emp_no
+	WHERE salaries.salary > 
+
+	(SELECT MAX(salaries.salary)
+ 	FROM salaries
+ 	JOIN dept_emp on salaries.emp_no=dept_emp.emp_no
+ 	WHERE dept_emp.dept_no='d002')
+	
+	In addtion to primary keys (employees.emp_no,salaries.emp_no,dept_emp.emp_no), salaries.salary, dept_emp.dept_no,salaries.salary
+	dept_emp.dept_no is used in the JOIN operation
+	salaries.salary is used in the nested SELECT statement inside the first WHERE
+
+9)  Query:	
+	SELECT DISTINCT employees.first_name,employees.last_name
+	FROM employees
+	JOIN salaries on employees.emp_no=salaries.emp_no
+	WHERE salaries.salary > 
+
+	(SELECT AVG(salaries.salary)
+	 FROM salaries)
+
+	In addtion to primary keys (employees.emp_no,salaries.emp_no), salaries.salary
+	salaries.salary used inside the WHERE clause and nested SELECT statement
+
+10)  Query:	
+	SELECT (
+    		(SELECT AVG(salaries.salary) FROM salaries 
+    		INNER JOIN titles 
+    		ON titles.emp_no = salaries.emp_no
+    		WHERE titles.title = 'Senior Engineer'
+
+    		)-
+    		(SELECT AVG(salaries.salary) FROM salaries)
+	) AS Difference;
+
+ 	In addtion to primary keys (titles.emp_no,salaries.emp_no), titles.title,salaries.salary
+	titles.title used inside the WHERE clause
+	salaries.salary used inside the nested SELECT statement
+ 
+7.
+If the data is updated more frequently then database engine requires updating all the indexes and sort them accordingly, thus too many indexes will slows down the performance. Adding data to an index means that the index will have to update. As data gets deleted, you have to delete data from the index. All these can impact performance of the system. Therefor, query exection time will increase
